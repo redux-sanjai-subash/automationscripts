@@ -28,43 +28,54 @@ class AWSAccountAuditor:
         )
 
     def audit_ec2_instances(self):
-        """Audit EC2 instances and their configurations"""
-        try:
-            response = self.ec2_client.describe_instances()
-            instances_data = []
-            
-            for reservation in response['Reservations']:
-                for instance in reservation['Instances']:
-                    security_groups = [sg['GroupName'] for sg in instance.get('SecurityGroups', [])]
-                    
-                    instance_data = {
-                        'Instance ID': instance['InstanceId'],
-                        'Name': instance.get('Tags', [{}])[0].get('Name', 'N/A'),
-                        'Type': instance['InstanceType'],
-                        'State': instance['State']['Name'],
-                        'Public IP': instance.get('PublicIpAddress', 'N/A'),
-                        'Private IP': instance.get('PrivateIpAddress', 'N/A'),
-                        'Security Groups': ','.join(security_groups),
-                        'IAM Role': instance.get('IamInstanceProfile', {}).get('Arn', 'N/A')
-                    }
-                    
-                    metrics_response = self.cloudwatch_client.list_metrics(
-                        Namespace='AWS/EC2',
-                        Dimensions=[{'Name': 'InstanceId', 'Value': instance['InstanceId']}]
-                    )
-                    alarms = [metric['MetricName'] for metric in metrics_response['Metrics']]
-                    instance_data['Monitoring Alarms'] = ','.join(alarms) or 'None'
-                    
-                    instances_data.append(instance_data)
-            
-            headers = ['Instance ID', 'Name', 'Type', 'State', 'Public IP', 
-                      'Private IP', 'Security Groups', 'IAM Role', 'Monitoring Alarms']
-            print("\nEC2 Instances Audit Results:")
-            print(tabulate.tabulate(instances_data, headers=headers, tablefmt='grid'))
-            
-        except Exception as e:
-            logging.error(f"Error auditing EC2 instances: {str(e)}")
-            print(f"Error: Unable to retrieve EC2 instances information")
+    """Audit EC2 instances and their configurations"""
+    try:
+        response = self.ec2_client.describe_instances()
+        instances_data = []
+        
+        for reservation in response['Reservations']:
+            for instance in reservation['Instances']:
+                security_groups = [sg['GroupName'] for sg in instance.get('SecurityGroups', [])]
+                
+                # Handle IAM role with error checking
+                iam_role = 'None'
+                try:
+                    if 'IamInstanceProfile' in instance:
+                        iam_role = instance['IamInstanceProfile'].get('Arn', 'Not Available')
+                    else:
+                        iam_role = 'No IAM Role Attached'
+                except Exception as e:
+                    logging.error(f"Error fetching IAM role for instance {instance['InstanceId']}: {str(e)}")
+                    iam_role = 'Error Fetching IAM Role'
+                
+                instance_data = {
+                    'Instance ID': instance['InstanceId'],
+                    'Name': instance.get('Tags', [{}])[0].get('Name', 'N/A'),
+                    'Type': instance['InstanceType'],
+                    'State': instance['State']['Name'],
+                    'Public IP': instance.get('PublicIpAddress', 'N/A'),
+                    'Private IP': instance.get('PrivateIpAddress', 'N/A'),
+                    'Security Groups': ','.join(security_groups),
+                    'IAM Role': iam_role
+                }
+                
+                metrics_response = self.cloudwatch_client.list_metrics(
+                    Namespace='AWS/EC2',
+                    Dimensions=[{'Name': 'InstanceId', 'Value': instance['InstanceId']}]
+                )
+                alarms = [metric['MetricName'] for metric in metrics_response['Metrics']]
+                instance_data['Monitoring Alarms'] = ','.join(alarms) or 'None'
+                
+                instances_data.append(instance_data)
+        
+        headers = ['Instance ID', 'Name', 'Type', 'State', 'Public IP', 
+                  'Private IP', 'Security Groups', 'IAM Role', 'Monitoring Alarms']
+        print("\nEC2 Instances Audit Results:")
+        print(tabulate.tabulate(instances_data, headers=headers, tablefmt='grid'))
+        
+    except Exception as e:
+        logging.error(f"Error auditing EC2 instances: {str(e)}")
+        print(f"Error: Unable to retrieve EC2 instances information")
 
 def main():
     auditor = AWSAccountAuditor()
